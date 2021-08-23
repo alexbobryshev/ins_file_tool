@@ -12,13 +12,14 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <inttypes.h>
 #include "c_vector.h"
 
 const char* kInsFileSignature = "8db42d694ccc418790edff439fe026bf";
 #define kInsFileSignatureLength  32
 #define kInsFileMinHeaderLength  (kInsFileSignatureLength+40)
 
-#define kCopyBufferSize  8*1024 /* Buffer size for copy media data */
+#define kCopyBufferSize  (512*1024) /* Buffer size for copy media data */
 
 // Some info about Insta360 metadata format can be found here
 // https://fossies.org/linux/Image-ExifTool/lib/Image/ExifTool/QuickTimeStream.pl
@@ -506,18 +507,24 @@ int run_show_info(const char* param_file_in) {
 int run_change_stitching_offset(const char* param_file_in, const char* param_file_out, const char* param_new_offset) {
   uint8_t* trailer_data;
   InsFileTrailerHeaderType trailer_info;
-  char copy_buffer[kCopyBufferSize];
+  char* copy_buffer = (char*) malloc(kCopyBufferSize);
+  if (!copy_buffer) {
+    printf("No memory\n");
+    return -1;
+  }
 
   printf("Use file: %s\n", param_file_in);
 
   FILE* file = fopen(param_file_in, "rb");
   if (!file) {
+    free(copy_buffer);
     printf("Cannot open file\n");
     return -2;
   }
 
   if (ins_read_allocate_trailer(file, &trailer_data, &trailer_info) < 0) {
     printf("Cannot decode file header\n");
+    free(copy_buffer);
     fclose(file);
     return -3;
   }
@@ -530,6 +537,7 @@ int run_change_stitching_offset(const char* param_file_in, const char* param_fil
   if (ins_decode_trailer_data(trailer_data, &trailer_info, &trailer_hdr_infos) < 0) {
     printf("Cannot decode trailer header\n");
     ins_free_trailer_buffer(trailer_data);
+    free(copy_buffer);
     fclose(file);
     return -4;
   }
@@ -558,6 +566,7 @@ int run_change_stitching_offset(const char* param_file_in, const char* param_fil
         printf("ERROR: cannot change stitching offset\n");
         ins_free_trailer_buffer(trailer_data);
         fclose(file);
+        free(copy_buffer);
         return -7;
       }
 
@@ -581,12 +590,13 @@ int run_change_stitching_offset(const char* param_file_in, const char* param_fil
     ins_free_trailer_buffer(trailer_data);
     ins_free_trailer_buffer(new_spec_trailer_hdr);
     fclose(file);
+    free(copy_buffer);
     return -5;
   }
 
-  int write_pos = 0;
+  int64_t write_pos = 0;
 
-  printf("Copy media data %d bytes...\n", (int)(file_in_size - trailer_info.trailer_len));
+  printf("Copy media data %" PRId64 " bytes...\n", (int64_t)(file_in_size - trailer_info.trailer_len));
 
   int error = 0;
 
@@ -615,6 +625,7 @@ int run_change_stitching_offset(const char* param_file_in, const char* param_fil
     ins_free_trailer_buffer(new_spec_trailer_hdr);
     fclose(file_out);
     fclose(file);
+    free(copy_buffer);
     return -6;
   }
 
@@ -670,6 +681,7 @@ int run_change_stitching_offset(const char* param_file_in, const char* param_fil
 
   fflush(file_out);
   fclose(file_out);
+  free(copy_buffer);
 
   printf("Done!\n");
   return 0;
